@@ -1,0 +1,1 @@
+A simple script to convert claude.ai output into structured project.
