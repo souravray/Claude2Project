@@ -16,13 +16,13 @@
 #
 
 # Global arrays to hold file paths and their corresponding content
-  file_paths=()
-  file_contents=()
+file_paths=()
+file_contents=()
 
 # Trim leading and trailing spaces from a string
-  trim_spaces() {
-    echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-  }
+trim_spaces() {
+  echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
 
 # Create directory if not exists
 directory_create() {
@@ -40,10 +40,14 @@ directory_create() {
 write_file_content() {
   local file_path="$1"
   local file_content="$2"
+
+# Create the file's parent directory exists before writing
   directory_create "$(dirname "$file_path")"
 
-  echo "$file_content" >| "$file_path"
+# Write content to the file
+  save_file "$file_path" "$file_content"
 
+# Grant 755 permission to the file
   chmod 755 "$file_path" || {
     echo "Error: Could not set permissions for $file_path"
     exit 1
@@ -51,14 +55,34 @@ write_file_content() {
 }
 
 # Save the current file's path and content
-save_current_file() {
+save_file() {
   local file_path="$1"
   local file_content="$2"
-  if [[ -n "$file_path" ]]; then
-    file_paths+=("$file_path")
-    file_contents+=("$file_content")
-  fi
+  if [ -o noclobber ]; then
+# If noclobber is on -> https://unix.stackexchange.com/questions/45201/bash-what-does-do/45203
+    echo "$file_content" >| "$file_path" || {
+      echo "$file_content" >! "$file_path" || {
+          echo "Error: Cannot overwrite the file $file_path, noclobber is on"
+          exit 1
+      }
+    }
+  else
+    echo "$file_content" > "$file_path" || {
+      echo "Error: Cannot write to the file $file_path, noclobber is off"
+      exit 1
+    }
+  fi 
 }
+
+# Write files based on the map
+write_files() {
+  for i in "${!file_paths[@]}"; do
+    local file_path="${file_paths[$i]}"
+    local content="${file_contents[$i]}"
+    write_file_content "$file_path" "$content"
+  done
+}
+
 
 # Process each line in the file, adding files and directories
 process_line() {
@@ -100,22 +124,6 @@ parse_file_structure() {
 
 # Write all the files
   write_files
-}
-
-# Write files based on the map
-write_files() {
-  for i in "${!file_paths[@]}"; do
-    local file_path="${file_paths[$i]}"
-    local content="${file_contents[$i]}"
-    local dir
-
-# Ensure the file's parent directory exists before writing
-    dir=$(dirname "$file_path")
-    mkdir -p "$dir"
-
-# Write content to the file
-    echo -e "$content" > "$file_path"
-  done
 }
 
 # Main script entry point
