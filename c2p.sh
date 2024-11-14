@@ -20,25 +20,25 @@
   file_contents=()
 
 # Trim leading and trailing spaces from a string
-	trim_spaces() {
-		echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-	}
+  trim_spaces() {
+    echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+  }
 
 # Create directory if not exists
 directory_create() {
-	local dir="$1"
+  local dir="$1"
   if [ ! -d "$dir" ]; then
     echo "Creating directory: $dir"
     mkdir -p "$dir" || {
       echo "Error: Could not create directory $dir"
       exit 1
     }
-	fi
+  fi
 }
 
 # Write content to a file and setting permissions
 write_file_content() {
-	local file_path="$1"
+  local file_path="$1"
   local file_content="$2"
   directory_create "$(dirname "$file_path")"
 
@@ -52,7 +52,7 @@ write_file_content() {
 
 # Save the current file's path and content
 save_current_file() {
-	local file_path="$1"
+  local file_path="$1"
   local file_content="$2"
   if [[ -n "$file_path" ]]; then
     file_paths+=("$file_path")
@@ -62,7 +62,7 @@ save_current_file() {
 
 # Process each line in the file, adding files and directories
 process_line() {
-	local line="$1" dest_dir="$2"
+  local line="$1" dest_dir="$2"
 
   if [[ "$line" =~ ^/\*$ ]]; then
     return  # Ignore comment lines
@@ -83,7 +83,7 @@ process_line() {
 
 # Parse the file structure and populate directories and files
 parse_file_structure() {
-	local input_file="$1" dest_dir="$2"
+  local input_file="$1" dest_dir="$2"
   current_file_content=""
   current_file_path=""
 
@@ -104,8 +104,8 @@ parse_file_structure() {
 
 # Write files based on the map
 write_files() {
-	for i in "${!file_paths[@]}"; do
-		local file_path="${file_paths[$i]}"
+  for i in "${!file_paths[@]}"; do
+    local file_path="${file_paths[$i]}"
     local content="${file_contents[$i]}"
     local dir
 
@@ -114,16 +114,16 @@ write_files() {
     mkdir -p "$dir"
 
 # Write content to the file
-		echo -e "$content" > "$file_path"
+    echo -e "$content" > "$file_path"
   done
 }
 
 # Main script entry point
 main() {
-	if [ -z "$1" ]; then
-		echo "Usage: $0 <input_file> [destination_directory (optional)]"
-		exit 1
-	fi
+  if [ -z "$1" ]; then
+    echo "Usage: $0 <input_file> [destination_directory (optional)]"
+    exit 1
+  fi
 
   local input_file="$1"
   local dest_dir="${2:-.}"
