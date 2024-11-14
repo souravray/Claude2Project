@@ -12,7 +12,7 @@
 # DISCLAIMER:
 # This code converts Standard Claude.ai multifile project output into a structured code in seconds.
 # This program is not affiliated with Claude.ai, and the author is not responsible for any future changes 
-# in Claude.ai output or the compatibility of this program with future future.
+# in Claude.ai output or the compatibility of this program with future format.
 #
 
 # Global arrays to hold file paths and their corresponding content
@@ -129,7 +129,7 @@ parse_file_structure() {
 # Main script entry point
 main() {
   if [ -z "$1" ]; then
-    echo "Usage: $0 <input_file> [destination_directory (optional)]"
+    echo "Usage: $0 <input_file> [destination_directory]"
     exit 1
   fi
 
