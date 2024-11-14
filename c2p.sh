@@ -126,6 +126,35 @@ parse_file_structure() {
   write_files
 }
 
+init_project_action() {
+  local input_file="$1" dir="$2"
+  parse_file_structure "$input_file" "$dest_dir"
+}
+
+update_project_action() {
+  local input_file="$1" dir="$2"
+  parse_file_structure "$input_file" "$dest_dir"
+}
+
+action_router() {
+    local input_file="$1" dir="$2"
+
+    # Check if the directory has a .git folder
+    if [ -d "$dir/.git" ]; then
+        echo "$dir has an Existing Git repository. Updating the project..."
+        update_project_action "$input_file" "$dest_dir"
+    else
+      # Check if the directory is empty (excluding hidden files)
+      if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
+        echo "$dir is empty. Initiating new projectt..."
+        init_project_action "$input_file" "$dest_dir"
+      else
+        echo "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory."
+        exit 1
+      fi
+    fi
+}
+
 # Main script entry point
 main() {
   if [ -z "$1" ]; then
@@ -140,8 +169,7 @@ main() {
   if [[ "$dest_dir" != "." ]]; then
     directory_create "$dest_dir"
   fi
-  
-  parse_file_structure "$input_file" "$dest_dir"
+  action_router "$input_file" "$dest_dir"
   echo "Directory structure and files created successfully in $dest_dir"
 }
 
