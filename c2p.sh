@@ -20,29 +20,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/git-functions.sh" || {
-    echo "Error: Failed to load git functions"
-    exit 1
+  echo "Error: Failed to load git functions"
+  exit 1
 }
 
 # Get absolute path of a directory
 get_absolute_path() {
-    local dir="$1"
-    local abs_dir
+  local dir="$1"
+  local abs_dir
 
-    if [ -d "$dir" ]; then
-        abs_dir="$(cd "$dir" && pwd)"
-    else
-        local parent_dir
-        # If directory doesn't exist, get absolute path of parent and append dir name
-        parent_dir="$(cd "$(dirname "$dir")" && pwd)"
-        abs_dir="${parent_dir}/$(basename "$dir")"
-        # Create the directory
-        mkdir -p "$abs_dir" || { 
-            echo "Error: Failed to create directory: $abs_dir"
-            return 1
-        }
-    fi
-    echo "$abs_dir"
+  if [ -d "$dir" ]; then
+      abs_dir="$(cd "$dir" && pwd)"
+  else
+    local parent_dir
+    # If directory doesn't exist, get absolute path of parent and append dir name
+    parent_dir="$(cd "$(dirname "$dir")" && pwd)"
+    abs_dir="${parent_dir}/$(basename "$dir")"
+    # Create the directory
+    mkdir -p "$abs_dir" || { 
+      echo "Error: Failed to create directory: $abs_dir"
+      return 1
+    }
+  fi
+  echo "$abs_dir"
 }
 
 # Global arrays to hold file paths and their corresponding content
@@ -89,11 +89,11 @@ save_file() {
   local file_path="$1"
   local file_content="$2"
   if [ -o noclobber ]; then
-# If noclobber is on -> https://unix.stackexchange.com/questions/45201/bash-what-does-do/45203
+  # If noclobber is on -> https://unix.stackexchange.com/questions/45201/bash-what-does-do/45203
     echo "$file_content" >| "$file_path" || {
       echo "$file_content" >! "$file_path" || {
-          echo "Error: Cannot overwrite the file $file_path, noclobber is on"
-          exit 1
+        echo "Error: Cannot overwrite the file $file_path, noclobber is on"
+        exit 1
       }
     }
   else
@@ -158,48 +158,82 @@ parse_file_structure() {
 
 # Initialize new project with a Git workflow
 init_project_action() {
-    local input_file="$1" dir="$2"
-    local parent_dir
-    
-    # Get absolute path of destination directory
-    local abs_dir
-    abs_dir="$(get_absolute_path "$dir")" || {
-        echo "Failed to get absolute path"
-        exit 1
-    }
-    
-    echo "Initializing project in: $abs_dir"
-    
-    # Initialize Git repository first
-    init_git_repo "$abs_dir"
-    
-    # Parse and create files
-    parse_file_structure "$input_file" "$abs_dir"
-    
-    # Stage and commit all files
-    stage_and_commit_files "Initial project setup" "${file_paths[@]}"
-    
-    echo "Project initialized with Git repository"
+  local input_file="$1" dir="$2"
+  local parent_dir
+  
+  # Get absolute path of destination directory
+  local abs_dir
+  abs_dir="$(get_absolute_path "$dir")" || {
+    echo "Failed to get absolute path"
+    exit 1
+  }
+  
+  echo "Initializing project in: $abs_dir"
+  
+  # Initialize Git repository first
+  init_git_repo "$abs_dir"
+  
+  # Parse and create files
+  parse_file_structure "$input_file" "$abs_dir"
+  
+  # Stage and commit all files
+  stage_and_commit_files "Initial project setup" "${file_paths[@]}"
+  
+  echo "Project initialized with Git repository"
 }
+
+
+# Update existing project with Git workflow
+update_project_action() {
+  local input_file="$1" dir="$2"
+  local abs_dir review_branch
+
+  # Get absolute path of destination directory
+  abs_dir="$(get_absolute_path "$dir")" || {
+    echo "Failed to get absolute path"
+    exit 1
+  }
+  
+  # Set project directory for Git operations
+  set_project_dir "$abs_dir"
+  
+  # Check for unsaved changes
+  check_working_tree_clean
+  
+  # Create new review branch
+  review_branch=$(create_review_branch)
+  
+  # Parse and update files
+  parse_file_structure "$input_file" "$abs_dir"
+
+  # Stage and commit changes in review branch
+  review_stage_and_commit_files "Update from Claude output" "${file_paths[@]}"
+  
+  # Perform merge process
+  perform_merge "$review_branch"
+  
+  echo "Project updated successfully"
+}
+
 
 # Route to init_project_action or update_project_action based on directory status
 action_router() {
-    local input_file="$1" dir="$2"
+  local input_file="$1" dir="$2"
 
-    # Check if the directory has a .git folder
-    if [ -d "$dir/.git" ]; then
-        echo "$dir has an Existing Git repository. Updating the project..."
-        update_project_action "$input_file" "$dest_dir"
+  # Check if the directory has a .git folder
+  if [ -d "$dir/.git" ]; then
+      echo "$dir has an Existing Git repository. Updating the project..."
+      update_project_action "$input_file" "$dest_dir"
+  else
+    # Check if the directory is empty (excluding hidden files)
+    if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
+      echo "$dir is empty. Initiating new projectt..."
+      init_project_action "$input_file" "$dest_dir"
     else
-      # Check if the directory is empty (excluding hidden files)
-      if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
-        echo "$dir is empty. Initiating new projectt..."
-        init_project_action "$input_file" "$dest_dir"
-      else
-        echo "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory."
-        exit 1
-      fi
+      echo "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory."
+      exit 1
     fi
+  fi
 }
 
 # Main script entry point
