@@ -15,6 +15,36 @@
 # in Claude.ai output or the compatibility of this program with future format.
 #
 
+# Source the git functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/git-functions.sh" || {
+    echo "Error: Failed to load git functions"
+    exit 1
+}
+
+# Get absolute path of a directory
+get_absolute_path() {
+    local dir="$1"
+    local abs_dir
+
+    if [ -d "$dir" ]; then
+        abs_dir="$(cd "$dir" && pwd)"
+    else
+        local parent_dir
+        # If directory doesn't exist, get absolute path of parent and append dir name
+        parent_dir="$(cd "$(dirname "$dir")" && pwd)"
+        abs_dir="${parent_dir}/$(basename "$dir")"
+        # Create the directory
+        mkdir -p "$abs_dir" || { 
+            echo "Error: Failed to create directory: $abs_dir"
+            return 1
+        }
+    fi
+    echo "$abs_dir"
+}
+
 # Global arrays to hold file paths and their corresponding content
 file_paths=()
 file_contents=()
@@ -126,16 +156,33 @@ parse_file_structure() {
   write_files
 }
 
+# Initialize new project with a Git workflow
 init_project_action() {
-  local input_file="$1" dir="$2"
-  parse_file_structure "$input_file" "$dest_dir"
+    local input_file="$1" dir="$2"
+    local parent_dir
+    
+    # Get absolute path of destination directory
+    local abs_dir
+    abs_dir="$(get_absolute_path "$dir")" || {
+        echo "Failed to get absolute path"
+        exit 1
+    }
+    
+    echo "Initializing project in: $abs_dir"
+    
+    # Initialize Git repository first
+    init_git_repo "$abs_dir"
+    
+    # Parse and create files
+    parse_file_structure "$input_file" "$abs_dir"
+    
+    # Stage and commit all files
+    stage_and_commit_files "Initial project setup" "${file_paths[@]}"
+    
+    echo "Project initialized with Git repository"
 }
 
-update_project_action() {
-  local input_file="$1" dir="$2"
-  parse_file_structure "$input_file" "$dest_dir"
-}
-
+# Route to init_project_action or update_project_action based on directory status
 action_router() {
     local input_file="$1" dir="$2"
 
