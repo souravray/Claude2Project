@@ -44,47 +44,6 @@ init_git_repo() {
   set_project_dir "$abs_dir"
 }
 
-# Stage and commit files
-stage_and_commit_files() {
-  local message="$1"
-  shift
-  local files=("$@")
-  
-  echo "Staging files in: $PROJECT_DIR"
-  
-  # Change to project directory
-  (cd "$PROJECT_DIR" && {
-    for file in "${files[@]}"; do
-      # Get the path relative to PROJECT_DIR
-      local relative_path
-      if [[ "$file" = /* ]]; then
-        # If absolute path, make it relative to PROJECT_DIR
-        relative_path="${file#"$PROJECT_DIR"/}"
-      else
-        # If already relative, use as is
-        relative_path="$file"
-      fi
-      
-      echo "Staging file: $relative_path"
-      if [ -f "$relative_path" ]; then
-        git add "$relative_path" || {
-          echo "Error: Failed to stage $relative_path"
-          return 1
-        }
-      else
-        echo "Warning: File not found: $relative_path"
-      fi
-    done
-    
-    # Commit the changes
-    echo "Committing changes with message: $message"
-    git commit -m "$message" || {
-      echo "Error: Failed to commit changes"
-      return 1
-    }
-  }) || exit 1
-}
-
 # Check if working tree is clean
 check_working_tree_clean() {
   if ! git_in_project git diff-index --quiet HEAD --; then
@@ -129,9 +88,74 @@ configure_merge_tool() {
   git_in_project git config mergetool.prompt false
 }
 
-# Review, Stage and commit files
-review_stage_and_commit_files() {
+# Stage and commit related functions
+
+# Helper function to get relative path for git operations
+_get_relative_path() {
+  local file="$1"
+  local relative_path
+  
+  if [[ "$file" = /* ]]; then
+    # If absolute path, make it relative to PROJECT_DIR
+    relative_path="${file#"$PROJECT_DIR"/}"
+  else
+    # If already relative, use as is
+    relative_path="$file"
+  fi
+  echo "$relative_path"
+}
+
+# Helper function to stage a single file
+_stage_file() {
+  local file="$1"
+  local review="$2"
+  local relative_path
+  
+  relative_path="$(_get_relative_path "$file")"
+  echo "Processing file: $relative_path"
+  
+  if [ ! -f "$relative_path" ]; then
+    echo "Warning: File not found: $relative_path"
+    return 0
+  fi
+  
+  if [ "$review" = true ]; then
+    clear
+    echo "Review and staging changes in: $relative_path"
+    sleep 2
+    clear
+    git add -p "$relative_path" || {
+      echo "Error: Failed to stage $relative_path"
+      return 1
+    }
+  else
+    git add "$relative_path" || {
+      echo "Error: Failed to stage $relative_path"
+      return 1
+    }
+  fi
+}
+
+# Helper function to handle commit
+_commit_changes() {
   local message="$1"
+  local discard_unstaged="$2"
+  
+  echo "Committing changes with message: $message"
+  git commit -m "$message" || {
+    echo "Error: Failed to commit changes"
+    return 1
+  }
+  
+  if [ "$discard_unstaged" = true ]; then
+    git restore .
+  fi
+}
+
+# Main function to stage and commit files with options
+stage_and_commit_files() {
+  local message="$1"
+  local review=${2:-false}  # Optional parameter for review mode
   shift
   local files=("$@")
   
@@ -139,40 +163,24 @@ review_stage_and_commit_files() {
   
   # Change to project directory
   (cd "$PROJECT_DIR" && {
+    # Stage each file
     for file in "${files[@]}"; do
-      # Get the path relative to PROJECT_DIR
-      local relative_path
-      if [[ "$file" = /* ]]; then
-        # If absolute path, make it relative to PROJECT_DIR
-        relative_path="${file#"$PROJECT_DIR"/}"
-      else
-        # If already relative, use as is
-        relative_path="$file"
-      fi
-      clear
-      echo "Review and staging changes in: $relative_path"
-      sleep 2
-      clear
-      if [ -f "$relative_path" ]; then
-        git add -p "$relative_path" || {
-          echo "Error: Failed to stage $relative_path"
-          return 1
-        }
-      else
-        echo "Warning: File not found: $relative_path"
-      fi
+      _stage_file "$file" "$review" || return 1
     done
-    clear
-    sleep 2
-    # Commit the changes
-    echo "Committing changes with message: $message"
-    git commit -m "$message" || {
-      echo "Error: Failed to commit changes"
-      return 1
-    }
-    # Discard any changes that has not been staged by user
-    git restore . 
+    
+    if [ "$review" = true ]; then
+      clear
+      sleep 2
+    fi
+    
+    # Commit changes with appropriate cleanup
+    _commit_changes "$message" "$review"
   }) || exit 1
+}
+
+# Function for interactive review and commit (wrapper for backward compatibility)
+review_stage_and_commit_files() {
+  stage_and_commit_files "$1" true "${@:2}"
 }
 
 # Perform merge operation
