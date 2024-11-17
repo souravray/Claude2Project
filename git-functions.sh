@@ -92,46 +92,51 @@ configure_merge_tool() {
 # Get available merge tools
 _get_available_tools() {
   # Initialize variables first
-  local tools=()
+  local supported_tools=("vimdiff" "nvimdiff" )
+  local available_tools=()
   local choice
   local tool
   
   # Clear any pending input
-  # shellcheck disable=SC2162
-  read -t 0.1 -n 10000 || true
-  
-  # Collect tools first
-  while IFS= read -r line; do
-    if [[ $line =~ ^[[:space:]]*([^[:space:]]+)[[:space:]]+Use ]]; then
-      tool="${BASH_REMATCH[1]}"
-      # shellcheck disable=SC2143
-      if ! [[ $(echo "$line" | grep "requires a graphical session") ]]; then
-        tools+=("$tool")
-      fi
-    fi
-  done < <(git mergetool --tool-help | sed -n '/may be set to one of the following:/,/The following tools are valid, but not currently available:/p')
+  read -rt 0.1 -n 10000 || true
 
   # Add VS Code if available
   if command -v code >/dev/null 2>&1; then
-    tools+=("code")
+    available_tools+=("code")
   fi
+    
+  # Check which supported tools are available
+   while IFS= read -r line; do
+    if [[ $line =~ ^[[:space:]]*([^[:space:]]+)[[:space:]]+Use ]]; then
+      tool="${BASH_REMATCH[1]}"
+      tool="$(echo "$tool" | sed 's/\x1B\[[0-9;]*[JKmsu]//g' | tr -d '[:space:]')"
+      # Check if the tool is in our supported list using proper array containment check
+      for supported_tool in "${supported_tools[@]}"; do
+        if [[ "$tool" == "$supported_tool" ]]; then
+          # Add tool to the list of Avilale Tools
+            available_tools+=("$tool")
+          break
+        fi
+      done
+    fi
+  done < <(git mergetool --tool-help | sed -n '/may be set to one of the following:/,/The following tools are valid, but not currently available:/p')
 
   # Print menu and get choice
   {
     echo "Available merge options:"
-    for i in "${!tools[@]}"; do
-      echo "$((i+1)). ${tools[i]}"
+    for i in "${!available_tools[@]}"; do
+      echo "$((i+1)). ${available_tools[i]}"
     done
-    echo "$((${#tools[@]}+1)). Use git add -p (default)"
-    echo -n "Choose a merge option (1-$((${#tools[@]}+1))): "
+    echo "$((${#available_tools[@]}+1)). Use git add -p (default)"
+    echo -n "Choose a merge option (1-$((${#available_tools[@]}+1))): "
   } > /dev/tty
 
   # Read from /dev/tty explicitly
   read -r choice < /dev/tty
 
   # Force output buffer flush
-  if [ "$choice" -le "${#tools[@]}" ] && [ "$choice" -ge 1 ]; then
-    printf '%s' "${tools[$((choice-1))]}"
+  if [ "$choice" -le "${#available_tools[@]}" ] && [ "$choice" -ge 1 ]; then
+    printf '%s' "${available_tools[$((choice-1))]}"
   else
     printf ''
   fi
@@ -142,7 +147,6 @@ _get_available_tools() {
 _get_relative_path() {
   local file="$1"
   local relative_path
-  
   if [[ "$file" = /* ]]; then
     # If absolute path, make it relative to PROJECT_DIR
     relative_path="${file#"$PROJECT_DIR"/}"
@@ -172,44 +176,56 @@ _stage_file_with_mergetool() {
   repo_toplevel=$(git rev-parse --show-toplevel)
   
   (cd "$repo_toplevel" && {
-    # Create temporary files
-    git show :"$relative_file_path" > "$relative_file_path.from_index"
+    # Create temporary files with meaningful names
+    local index_file="$relative_file_path.from_index"
+    # local merged_file="$relative_file_path.to_add" # If support kdiff3 or similar tools in future
+    local backup_file="$relative_file_path.working_tree"
     
+    # Get the version from index
+    git show :"$relative_file_path" > "$index_file"
+
     # Set up merge tool command based on tool
-    local merge_cmd
+    local merge_cmd 
     case "$tool" in
       "code")
-        merge_cmd="code --wait --diff \"$relative_file_path.from_index\" \"$relative_file_path\""
+        merge_cmd="code --wait --diff \"$index_file\" \"$relative_file_path\""
+        ;;
+      "vimdiff"|"nvimdiff")
+        # Using -d for side-by-side diff mode
+        merge_cmd="$tool -d \"$index_file\" \"$relative_file_path\""
         ;;
       *)
-        merge_cmd="git mergetool --tool=$tool -y \"$relative_file_path\""
+        echo "Error: Unsupported merge tool '$tool'"
+        rm -f "$index_file"
+        return 1
         ;;
     esac
     
     # Execute merge
     echo "Launching $tool for '$relative_file_path'."
+
+    # For tools that handle waiting themselves
     eval "$merge_cmd"
     status=$?
     
     if [ $status -eq 0 ]; then
       # Backup working tree version
-      cp "$relative_file_path" "$relative_file_path.working_tree"
+      cp "$relative_file_path" "$backup_file"
       
       # Stage the changes
       git add "$relative_file_path"
       
       # Restore working tree version
-      mv "$relative_file_path.working_tree" "$relative_file_path"
+      mv "$backup_file" "$relative_file_path"
     fi
     
     # Cleanup
-    rm -f "$relative_file_path.from_index"
-    rm -f "$relative_file_path.working_tree"
+      rm -f "$index_file"
+      rm -f "$backup_file"
     
     return $status
   })
 }
-
 
 # Helper function to stage a single file
 _stage_file() {
@@ -279,22 +295,6 @@ stage_and_commit_files() {
     # Stage each file
     for file in "${files[@]}"; do
       case "${merge_tool}" in
-      #  "")
-        # if [ "$review" = true ]; then
-          # echo "going for - git add -p"
-          # 
-        # fi
-        # _stage_file "$file" "$review" || return 1
-        # ;;
-      # "code"|"vimdiff"|"emerge"|"opendiff"|"vimdiff1"|"vimdiff2"|"vimdiff3")
-          # echo "going to open MERGE TOOL $merge_tool"
-      # 
-        # ;;
-      # *)
-        # echo "Invalid merge tool selection: '$merge_tool'"
-      # 
-        # ;;
-
       ""|" ")
           _stage_file "$file" "$review" || return 1
         ;;
