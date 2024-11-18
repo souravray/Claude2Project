@@ -38,7 +38,7 @@ get_absolute_path() {
     abs_dir="${parent_dir}/$(basename "$dir")"
     # Create the directory
     mkdir -p "$abs_dir" || { 
-      echo "Error: Failed to create directory: $abs_dir"
+      print_fn_log "Error" "Failed to create directory: $abs_dir"
       return 1
     }
   fi
@@ -58,9 +58,9 @@ trim_spaces() {
 directory_create() {
   local dir="$1"
   if [ ! -d "$dir" ]; then
-    echo "Creating directory: $dir"
+    print_fn_log "Info" "Creating directory: $dir"
     mkdir -p "$dir" || {
-      echo "Error: Could not create directory $dir"
+      print_fn_log "Error" "Could not create directory $dir"
       exit 1
     }
   fi
@@ -79,7 +79,7 @@ write_file_content() {
 
 # Grant 755 permission to the file
   chmod 755 "$file_path" || {
-    echo "Error: Could not set permissions for $file_path"
+    print_fn_log "Error" "Could not set permissions for $file_path"
     exit 1
   }
 }
@@ -92,13 +92,13 @@ save_file() {
   # If noclobber is on -> https://unix.stackexchange.com/questions/45201/bash-what-does-do/45203
     echo "$file_content" >| "$file_path" || {
       echo "$file_content" >! "$file_path" || {
-        echo "Error: Cannot overwrite the file $file_path, noclobber is on"
+        print_fn_log "Error" "Cannot overwrite the file $file_path, noclobber is on"
         exit 1
       }
     }
   else
     echo "$file_content" > "$file_path" || {
-      echo "Error: Cannot write to the file $file_path, noclobber is off"
+      print_fn_log "Error" "Cannot write to the file $file_path, noclobber is off"
       exit 1
     }
   fi 
@@ -164,11 +164,12 @@ init_project_action() {
   # Get absolute path of destination directory
   local abs_dir
   abs_dir="$(get_absolute_path "$dir")" || {
-    echo "Failed to get absolute path"
+    print_fn_log "Error" "Failed to get absolute path"
     exit 1
   }
   
-  echo "Initializing project in: $abs_dir"
+  # Set project directory for Git operations
+  # set_project_dir "$abs_dir"
   
   # Initialize Git repository first
   init_git_repo "$abs_dir"
@@ -179,7 +180,7 @@ init_project_action() {
   # Stage and commit all files
   stage_and_commit_files "Initial project setup" "${file_paths[@]}"
   
-  echo "Project initialized with Git repository"
+  print_fn_heading "Success" "Project initialized with Git repository"
 }
 
 
@@ -190,10 +191,10 @@ update_project_action() {
 
   # Get absolute path of destination directory
   abs_dir="$(get_absolute_path "$dir")" || {
-    echo "Failed to get absolute path"
+    print_fn_log "Error" "Failed to get absolute path"
     exit 1
   }
-  
+
   # Set project directory for Git operations
   set_project_dir "$abs_dir"
 
@@ -218,7 +219,7 @@ update_project_action() {
   # Perform merge process
   perform_merge "$review_branch" "$origin_branch"
   
-  echo "Project updated successfully"
+  git_in_project "Success" "Project updated successfully"
 }
 
 
@@ -228,15 +229,15 @@ action_router() {
 
   # Check if the directory has a .git folder
   if [ -d "$dir/.git" ]; then
-      echo "$dir has an Existing Git repository. Updating the project..."
+      git_in_project "Info" "$dir has an Existing Git repository. Updating the project..."
       update_project_action "$input_file" "$dest_dir"
   else
     # Check if the directory is empty (excluding hidden files)
     if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
-      echo "$dir is empty. Initiating new projectt..."
+      git_in_project "Info" "$dir is empty. Initiating new projectt..."
       init_project_action "$input_file" "$dest_dir"
     else
-      echo "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory."
+      git_in_project "Failure" "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory."
       exit 1
     fi
   fi
@@ -257,7 +258,7 @@ main() {
     directory_create "$dest_dir"
   fi
   action_router "$input_file" "$dest_dir"
-  echo "Directory structure and files created successfully in $dest_dir"
+  print_fn_heading "Success" "Directory structure and files created successfully in $dest_dir"
 }
 
 main "$@"

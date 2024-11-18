@@ -9,15 +9,23 @@
 # Store the project directory for Git operations
 PROJECT_DIR=""
 
+# Source the logging functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/console-functions.sh" || {
+  echo "Error: Failed to load logging functions"
+  exit 1
+}
+
 # Set the project directory for Git operations
 set_project_dir() {
   # Resolve the absolute path
   PROJECT_DIR="$(cd "$1" 2>/dev/null && pwd)" || {
-    echo "Error: Failed to resolve project directory: $1"
+      print_fn_log "Error" "Failed to resolve project directory: $1"
     exit 1
   }
+  print_fn_log "Info" "Set project directory to: $PROJECT_DIR"
   export PROJECT_DIR
-  echo "Set project directory to: $PROJECT_DIR"
 }
 
 # Run git command in project directory
@@ -47,7 +55,7 @@ init_git_repo() {
 # Check if there is detached HEAD
 check_detached_head() {
   if git_in_project git rev-parse --abbrev-ref HEAD | grep -q "HEAD"; then
-    echo "Error: HEAD is detached. Please checkout a branch before proceeding."
+    print_fn_log "Error" "HEAD is detached. Please checkout a branch before proceeding."
     exit 1
   fi
 }
@@ -55,7 +63,7 @@ check_detached_head() {
 # Check if working tree is clean
 check_working_tree_clean() {
   if ! git_in_project git diff-index --quiet HEAD --; then
-    echo "Error: You have unsaved changes. Please commit or stash them before updating."
+    print_fn_log "Error" "You have unsaved changes. Please commit or stash them before updating."
     exit 1
   fi
 }
@@ -70,12 +78,12 @@ create_review_branch() {
   # Store the current branch name
   origin_branch=$(git_in_project git rev-parse --abbrev-ref HEAD)
   if [ -z "$origin_branch" ]; then
-    echo "Error: Failed to get current branch name" >&2
+    print_fn_log "Error" "Failed to get current branch name" >&2
     exit 1
   fi
 
   git_in_project git checkout -b "$review_branch" || {
-    echo "Error: Failed to create new review branch" >&2
+    print_fn_log "Error" "Failed to create new review branch" >&2
     exit 1
   }
 
@@ -137,10 +145,10 @@ _get_available_tools() {
       done
     fi
   done < <(git mergetool --tool-help | sed -n '/may be set to one of the following:/,/The following tools are valid, but not currently available:/p')
-
   # Print menu and get choice
   {
-    echo "Available merge options:"
+    clear
+    print_fn_heading "Notify" "Available merge options:"
     for i in "${!available_tools[@]}"; do
       echo "$((i+1)). ${available_tools[i]}"
     done
@@ -183,10 +191,9 @@ _stage_file_with_mergetool() {
   local relative_file_path repo_toplevel status
   
   relative_file_path="$(_get_relative_path "$file")"
-  echo "Reviewing diff: $relative_file_path"
-  
+  # print_fn_heading "Reviewing diff: $relative_file_path"
   if [ ! -f "$relative_file_path" ]; then
-    echo "Warning: File not found: $relative_file_path"
+    print_fn_log "Warning" "File not found: $relative_file_path"
     return 0
   fi
   
@@ -212,14 +219,14 @@ _stage_file_with_mergetool() {
         merge_cmd="$tool -d \"$index_file\" \"$relative_file_path\""
         ;;
       *)
-        echo "Error: Unsupported merge tool '$tool'"
+        print_fn_log "Error" "Unsupported merge tool '$tool'"
         rm -f "$index_file"
         return 1
         ;;
     esac
     
     # Execute merge
-    echo "Launching $tool for '$relative_file_path'."
+    print_fn_log "Info" "Launching $tool for '$relative_file_path'. \n Save and close the file to stage!"
 
     # For tools that handle waiting themselves
     eval "$merge_cmd"
@@ -251,25 +258,25 @@ _stage_file() {
   local relative_path
   
   relative_path="$(_get_relative_path "$file")"
-  echo "Processing file: $relative_path"
+  print_fn_heading "Processing file: $relative_path"
   
   if [ ! -f "$relative_path" ]; then
-    echo "Warning: File not found: $relative_path"
+    print_fn_log "Warning" "File not found: $relative_path"
     return 0
   fi
   
   if [ "$review" = true ]; then
     clear
-    echo "Review and staging changes in: $relative_path"
+    print_fn_heading "Review and staging changes in: $relative_path"
     sleep 2
     clear
     git add -p "$relative_path" || {
-      echo "Error: Failed to stage $relative_path"
+      print_fn_log "Error" "Failed to stage $relative_path"
       return 1
     }
   else
     git add "$relative_path" || {
-      echo "Error: Failed to stage $relative_path"
+      print_fn_log "Error" "Failed to stage $relative_path"
       return 1
     }
   fi
@@ -280,9 +287,9 @@ _commit_changes() {
   local message="$1"
   local discard_unstaged="$2"
   
-  echo "Committing changes with message: $message"
+  print_fn_heading "Committing changes with message: $message"
   git commit -m "$message" || {
-    echo "Error: Failed to commit changes"
+    print_fn_log "Error" "Failed to commit changes"
     return 1
   }
   
@@ -299,7 +306,7 @@ stage_and_commit_files() {
   local files=("$@")
   local merge_tool
   
-  echo "Staging files in: $PROJECT_DIR"
+  print_fn_log "Info" "Staging files in: $PROJECT_DIR"
   
   if [ "$review" = true ]; then
     # Get user's preferred merge tool
@@ -317,7 +324,7 @@ stage_and_commit_files() {
         ;;
       *)
         _stage_file_with_mergetool "$file" "$merge_tool" || {
-          echo "Error: Failed to stage $file"
+          print_fn_log "Error" "Failed to stage $file"
           return 1
         }
         ;;
@@ -346,12 +353,12 @@ perform_merge() {
   local merge_successful=false
   
   if [ -z "$origin_branch" ]; then
-    echo "Error: Could not determine origin branch"
+    print_fn_log "Error" "Could not determine origin branch"
     exit 1
   fi
 
   git_in_project git checkout "$origin_branch" || {
-    echo "Error: Failed to checkout $origin_branch branch"
+    print_fn_log "Error" "Failed to checkout $origin_branch branch"
     exit 1
   }
   
@@ -381,12 +388,12 @@ perform_merge() {
   
   # Delete review branch if merge was successful
   if [ "$merge_successful" = true ]; then
-    echo "Cleaning up review branch: $review_branch"
+    print_fn_log "Info" "Cleaning up review branch: $review_branch"
     git_in_project git branch -D "$review_branch" || {
-      echo "Warning: Failed to delete review branch $review_branch"
+      print_fn_log "Warning" "Failed to delete review branch $review_branch"
     }
-    echo "Project updated and review branch cleaned up successfully"
+    print_fn_heading "Project updated and review branch cleaned up successfully"
   else
-    echo "Merge was not completed, review branch $review_branch retained"
+    print_fn_log "Warning" "Merge was not completed, review branch $review_branch retained"
   fi
 }
