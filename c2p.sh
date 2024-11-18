@@ -196,12 +196,18 @@ update_project_action() {
   
   # Set project directory for Git operations
   set_project_dir "$abs_dir"
+
+  # Check if HEAD is detached
+  check_detached_head
   
   # Check for unsaved changes
   check_working_tree_clean
   
   # Create new review branch
-  review_branch=$(create_review_branch)
+  # Get review and origin branch names
+  branches=$(create_review_branch)
+  origin_branch="${branches%%:*}"
+  review_branch="${branches##*:}"
   
   # Parse and update files
   parse_file_structure "$input_file" "$abs_dir"
@@ -210,7 +216,7 @@ update_project_action() {
   review_stage_and_commit_files "Update from Claude output" "${file_paths[@]}"
   
   # Perform merge process
-  perform_merge "$review_branch"
+  perform_merge "$review_branch" "$origin_branch"
   
   echo "Project updated successfully"
 }

@@ -28,7 +28,7 @@ git_in_project() {
 # Initialize a new Git repository
 init_git_repo() {
   local dir="$1"
-  local abs_dir, parent_dir
+  local abs_dir parent_dir
   # Ensure we have the absolute path
   abs_dir="$(cd "$dir" 2>/dev/null && pwd)" || {
     # If directory doesn't exist yet, get absolute path of parent and append dir name
@@ -44,6 +44,14 @@ init_git_repo() {
   set_project_dir "$abs_dir"
 }
 
+# Check if there is detached HEAD
+check_detached_head() {
+  if git_in_project git rev-parse --abbrev-ref HEAD | grep -q "HEAD"; then
+    echo "Error: HEAD is detached. Please checkout a branch before proceeding."
+    exit 1
+  fi
+}
+
 # Check if working tree is clean
 check_working_tree_clean() {
   if ! git_in_project git diff-index --quiet HEAD --; then
@@ -54,16 +62,25 @@ check_working_tree_clean() {
 
 # Create a new review branch
 create_review_branch() {
-  local current_review new_review branch_name
+  local current_review new_review origin_branch review_branch
   current_review=$(git_in_project git branch | grep -c "review-patch/")
   new_review=$((current_review + 1))
-  branch_name="review-patch/$new_review"
-  
-  git_in_project git checkout -b "$branch_name" || {
-    echo "Error: Failed to create new review branch"
+  review_branch="review-patch/$new_review"
+
+  # Store the current branch name
+  origin_branch=$(git_in_project git rev-parse --abbrev-ref HEAD)
+  if [ -z "$origin_branch" ]; then
+    echo "Error: Failed to get current branch name" >&2
+    exit 1
+  fi
+
+  git_in_project git checkout -b "$review_branch" || {
+    echo "Error: Failed to create new review branch" >&2
     exit 1
   }
-  echo "$branch_name"
+
+  # Return both branch names in format "origin_branch:review_branch"
+  echo "${origin_branch}:${review_branch}"
 }
 
 # Configure merge tool interactively
@@ -274,7 +291,7 @@ _commit_changes() {
   fi
 }
 
-# Main function to stage and commit files with options
+# Function to stage and commit files with options
 stage_and_commit_files() {
   local message="$1"
   local review=${2:-false}  # Optional parameter for review mode
@@ -325,13 +342,20 @@ review_stage_and_commit_files() {
 # Perform merge operation
 perform_merge() {
   local review_branch="$1"
+  local origin_branch="$2"
+  local merge_successful=false
   
-  git_in_project git checkout main || {
-    echo "Error: Failed to checkout main branch"
+  if [ -z "$origin_branch" ]; then
+    echo "Error: Could not determine origin branch"
+    exit 1
+  fi
+
+  git_in_project git checkout "$origin_branch" || {
+    echo "Error: Failed to checkout $origin_branch branch"
     exit 1
   }
+  
   # Merge changes
-  git_in_project git checkout main
   git_in_project git merge --no-commit --no-ff "$review_branch" 
 
   # Review merge conflicts
@@ -344,11 +368,25 @@ perform_merge() {
     git_in_project git diff --cached
 
     read -rp "Proceed with merge commit? (y/n): " proceed
-    [[ $proceed == "y" ]] && git_in_project git commit || git_in_project git merge --abort
+    if [[ $proceed == "y" ]]; then
+      git_in_project git commit && merge_successful=true
+    else
+      git_in_project git merge --abort
+    fi
   else
-    git_in_project git commit
+    git_in_project git commit && merge_successful=true
   fi
 
   git_in_project git clean -f
-  echo "Project updated successfully"
+  
+  # Delete review branch if merge was successful
+  if [ "$merge_successful" = true ]; then
+    echo "Cleaning up review branch: $review_branch"
+    git_in_project git branch -D "$review_branch" || {
+      echo "Warning: Failed to delete review branch $review_branch"
+    }
+    echo "Project updated and review branch cleaned up successfully"
+  else
+    echo "Merge was not completed, review branch $review_branch retained"
+  fi
 }
