@@ -1,4 +1,9 @@
 #!/bin/bash
+#
+# Copyright 2024 Sourav Ray
+#
+# Console output utility functions for c2p.sh
+#
 
 # Global color definitions
 readonly RESET='\033[0m'
