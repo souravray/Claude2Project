@@ -113,7 +113,6 @@ write_files() {
   done
 }
 
-
 # Process each line in the file, adding files and directories
 process_line() {
   local line="$1" dest_dir="$2"
@@ -169,10 +168,10 @@ init_project_action() {
   }
   
   # Set project directory for Git operations
-  # set_project_dir "$abs_dir"
+  set_project_dir "$abs_dir"
   
   # Initialize Git repository first
-  init_git_repo "$abs_dir"
+  init_git_repo
   
   # Parse and create files
   parse_file_structure "$input_file" "$abs_dir"
@@ -219,7 +218,7 @@ update_project_action() {
   # Perform merge process
   perform_merge "$review_branch" "$origin_branch"
   
-  git_in_project "Success" "Project updated successfully"
+  print_fn_heading "Success" "Project updated successfully"
 }
 
 
@@ -229,15 +228,15 @@ action_router() {
 
   # Check if the directory has a .git folder
   if [ -d "$dir/.git" ]; then
-      git_in_project "Info" "$dir has an Existing Git repository. Updating the project..."
+      print_fn_heading "Info" "$dir has an Existing Git repository. Updating the project..."
       update_project_action "$input_file" "$dest_dir"
   else
     # Check if the directory is empty (excluding hidden files)
     if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
-      git_in_project "Info" "$dir is empty. Initiating new projectt..."
+      print_fn_heading "Info" "$dir is empty. Initiating new projectt..."
       init_project_action "$input_file" "$dest_dir"
     else
-      git_in_project "Failure" "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory."
+      print_fn_heading "Failure" "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory."
       exit 1
     fi
   fi

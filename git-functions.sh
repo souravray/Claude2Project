@@ -35,21 +35,10 @@ git_in_project() {
 
 # Initialize a new Git repository
 init_git_repo() {
-  local dir="$1"
-  local abs_dir parent_dir
-  # Ensure we have the absolute path
-  abs_dir="$(cd "$dir" 2>/dev/null && pwd)" || {
-    # If directory doesn't exist yet, get absolute path of parent and append dir name
-    parent_dir="$(cd "$(dirname "$dir")" 2>/dev/null && pwd)"
-    abs_dir="${parent_dir}/$(basename "$dir")"
-  }
-  
-  echo "Initializing Git repository in: $abs_dir"
-  git init "$abs_dir" || {
+  git init "$PROJECT_DIR" 2>/dev/null|| {
     echo "Error: Failed to initialize Git repository"
     exit 1
   }
-  set_project_dir "$abs_dir"
 }
 
 # Check if there is detached HEAD
@@ -78,12 +67,12 @@ create_review_branch() {
   # Store the current branch name
   origin_branch=$(git_in_project git rev-parse --abbrev-ref HEAD)
   if [ -z "$origin_branch" ]; then
-    print_fn_log "Error" "Failed to get current branch name" >&2
+    print_fn_log "Error" "Failed to get current branch name"
     exit 1
   fi
 
-  git_in_project git checkout -b "$review_branch" || {
-    print_fn_log "Error" "Failed to create new review branch" >&2
+  git_in_project git checkout -b "$review_branch" 2>/dev/null || {
+    print_fn_log "Error" "Failed to create new review branch"
     exit 1
   }
 
@@ -123,7 +112,7 @@ _get_available_tools() {
   local tool
   
   # Clear any pending input
-  read -rt 0.1 -n 10000 || true
+  read -rt 0.1 -n 10000 2>/dev/null|| true
 
   # Add VS Code if available
   if command -v code >/dev/null 2>&1; then
@@ -270,12 +259,12 @@ _stage_file() {
     print_fn_heading "Review and staging changes in: $relative_path"
     sleep 2
     clear
-    git add -p "$relative_path" || {
+    git add -p "$relative_path" 2>/dev/null || {
       print_fn_log "Error" "Failed to stage $relative_path"
       return 1
     }
   else
-    git add "$relative_path" || {
+    git add "$relative_path" 2>/dev/null || {
       print_fn_log "Error" "Failed to stage $relative_path"
       return 1
     }
