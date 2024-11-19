@@ -59,11 +59,12 @@ directory_create() {
   local dir="$1"
   if [ ! -d "$dir" ]; then
     print_fn_log "Info" "Creating directory: $dir"
-    mkdir -p "$dir" || {
+    mkdir -p "$dir" 2>/dev/null || {
       print_fn_log "Error" "Could not create directory $dir"
-      exit 1
+      return 1
     }
   fi
+  return 0
 }
 
 # Write content to a file and setting permissions
@@ -72,16 +73,17 @@ write_file_content() {
   local file_content="$2"
 
 # Create the file's parent directory exists before writing
-  directory_create "$(dirname "$file_path")"
+  directory_create "$(dirname "$file_path")" || return 1
 
 # Write content to the file
-  save_file "$file_path" "$file_content"
+  save_file "$file_path" "$file_content" || return 1
 
 # Grant 755 permission to the file
-  chmod 755 "$file_path" || {
+  chmod 755 "$file_path" 2>/dev/null || {
     print_fn_log "Error" "Could not set permissions for $file_path"
-    exit 1
+    return 1
   }
+  return 0
 }
 
 # Save the current file's path and content
@@ -93,15 +95,16 @@ save_file() {
     echo "$file_content" >| "$file_path" || {
       echo "$file_content" >! "$file_path" || {
         print_fn_log "Error" "Cannot overwrite the file $file_path, noclobber is on"
-        exit 1
+        return 1
       }
     }
   else
     echo "$file_content" > "$file_path" || {
       print_fn_log "Error" "Cannot write to the file $file_path, noclobber is off"
-      exit 1
+      return 1
     }
   fi 
+  return 0
 }
 
 # Write files based on the map
@@ -109,8 +112,9 @@ write_files() {
   for i in "${!file_paths[@]}"; do
     local file_path="${file_paths[$i]}"
     local content="${file_contents[$i]}"
-    write_file_content "$file_path" "$content"
+    write_file_content "$file_path" "$content" || return 1
   done
+  return 0
 }
 
 # Process each line in the file, adding files and directories
@@ -152,36 +156,70 @@ parse_file_structure() {
   fi
 
 # Write all the files
-  write_files
+  write_files || return 1
+  return 0
+}
+
+# Clean Up 
+clear_directory() {
+  local project_dir=$1 
+  print_fn_log "Warning" "called directory cleaning for: $project_dir"
+# rm -rf "$item"
+  for item in "$project_dir"/.* "$project_dir"/*; do
+    # Skip current directory (.) and parent directory (..)
+  if [ "$(basename "$item")" == "." ] || [ "$(basename "$item")" == ".." ]; then
+        continue
+    fi
+
+    # Check if item is a directory
+    if [ -d "$item" ]; then
+        print_fn_log "Warning" "Removing directory: $item"
+        rm -rf "$item"
+    elif [ -f "$item" ]; then
+        print_fn_log "Warning" "Removing file: $item"
+        rm -f "$item"
+    fi
+  done
 }
 
 # Initialize new project with a Git workflow
 init_project_action() {
   local input_file="$1" dir="$2"
-  local parent_dir
-  
+
   # Get absolute path of destination directory
   local abs_dir
   abs_dir="$(get_absolute_path "$dir")" || {
     print_fn_log "Error" "Failed to get absolute path"
-    exit 1
+    return 1
   }
   
   # Set project directory for Git operations
-  set_project_dir "$abs_dir"
+  set_project_dir "$abs_dir" || {
+    clear_directory "$abs_dir"
+    return 1
+  }
   
   # Initialize Git repository first
-  init_git_repo
+  init_git_repo || {
+    clear_directory "$abs_dir"
+    return 1
+  }
   
   # Parse and create files
-  parse_file_structure "$input_file" "$abs_dir"
+  parse_file_structure "$input_file" "$abs_dir" || {
+    clear_directory "$abs_dir"
+    return 1
+  }
   
   # Stage and commit all files
-  stage_and_commit_files "Initial project setup" "${file_paths[@]}"
+  stage_and_commit_files "Initial project setup" "${file_paths[@]}" || {
+    clear_directory "$abs_dir"
+    return 1
+  }
   
-  print_fn_heading "Success" "Project initialized with Git repository"
+  print_fn_heading "Notify" "Project initialized with Git repository"
+  return 0
 }
-
 
 # Update existing project with Git workflow
 update_project_action() {
@@ -191,34 +229,50 @@ update_project_action() {
   # Get absolute path of destination directory
   abs_dir="$(get_absolute_path "$dir")" || {
     print_fn_log "Error" "Failed to get absolute path"
-    exit 1
+    return 1
   }
 
   # Set project directory for Git operations
-  set_project_dir "$abs_dir"
+  set_project_dir "$abs_dir" ||  return 1
 
   # Check if HEAD is detached
-  check_detached_head
+  check_detached_head ||  return 1
   
   # Check for unsaved changes
-  check_working_tree_clean
+  check_working_tree_clean || return 1
   
   # Create new review branch
   # Get review and origin branch names
-  branches=$(create_review_branch)
+  branches=$(create_review_branch) || return 1
   origin_branch="${branches%%:*}"
   review_branch="${branches##*:}"
   
   # Parse and update files
-  parse_file_structure "$input_file" "$abs_dir"
+  parse_file_structure "$input_file" "$abs_dir" || {
+    print_fn_heading "Failure" "STOPING HERE!!"
+    cleanup_git_state "$review_branch" "$origin_branch"
+    return 0
+  }
 
   # Stage and commit changes in review branch
-  review_stage_and_commit_files "Update from Claude output" "${file_paths[@]}"
+  review_stage_and_commit_files "Update from Claude output" "${file_paths[@]}" || {
+    cleanup_git_state "$review_branch" "$origin_branch"
+    return 1 
+  }
   
   # Perform merge process
-  perform_merge "$review_branch" "$origin_branch"
+  perform_merge "$review_branch" "$origin_branch" || {
+    cleanup_git_state "$review_branch" "$origin_branch"
+    return 1 
+  }
   
-  print_fn_heading "Success" "Project updated successfully"
+  # Clean up after a succesful merge
+  if ! cleanup_git_state "$review_branch" "$origin_branch"; then
+      print_fn_heading "Alert" "Project updated successfully. However, the repository may contain some unresolved changes."
+  else
+      print_fn_heading "Notify" "Project updated successfully"
+  fi
+  return 0
 }
 
 
@@ -228,16 +282,22 @@ action_router() {
 
   # Check if the directory has a .git folder
   if [ -d "$dir/.git" ]; then
-      print_fn_heading "Info" "$dir has an Existing Git repository. Updating the project..."
-      update_project_action "$input_file" "$dest_dir"
+      print_fn_heading "Notify" "$dir has an Existing Git repository. Updating the project..."
+      update_project_action "$input_file" "$dest_dir" || {
+          print_fn_heading "Failure" "Failurer" "Update failed: Unable to complete the project update"
+          return 1
+      }
   else
     # Check if the directory is empty (excluding hidden files)
     if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
-      print_fn_heading "Info" "$dir is empty. Initiating new projectt..."
-      init_project_action "$input_file" "$dest_dir"
+      print_fn_heading "Notify" "$dir is empty. Initiating new projectt..."
+      init_project_action "$input_file" "$dest_dir" || {
+        print_fn_heading "Failure" "Initialization failed: Unable to start the project"
+        return 1
+      }
     else
-      print_fn_heading "Failure" "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory."
-      exit 1
+      print_fn_heading "Failure" "$dir is not empty. Cannot initiate new project. Please choose a diffrent directory"
+      return 1
     fi
   fi
 }
@@ -256,8 +316,9 @@ main() {
   if [[ "$dest_dir" != "." ]]; then
     directory_create "$dest_dir"
   fi
-  action_router "$input_file" "$dest_dir"
-  print_fn_heading "Success" "Directory structure and files created successfully in $dest_dir"
+  if action_router "$input_file" "$dest_dir"; then
+    print_fn_heading "Success" "Directory structure and files created successfully in $dest_dir"
+  fi
 }
 
 main "$@"

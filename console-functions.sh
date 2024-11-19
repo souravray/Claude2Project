@@ -48,6 +48,10 @@ print_fn_heading() {
       shift
       color="$COLOR_RED"
     ;;
+    "Alert")
+      shift
+      color="$COLOR_YELLOW"
+    ;;
     "Notify")
       shift
       color="$COLOR_BLUE"
