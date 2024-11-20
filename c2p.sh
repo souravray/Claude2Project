@@ -290,7 +290,7 @@ action_router() {
   else
     # Check if the directory is empty (excluding hidden files)
     if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
-      print_fn_heading "Notify" "$dir is empty. Initiating new projectt..."
+      print_fn_heading "Notify" "$dir is empty. Initiating new project..."
       init_project_action "$input_file" "$dest_dir" || {
         print_fn_heading "Failure" "Initialization failed: Unable to start the project"
         return 1
