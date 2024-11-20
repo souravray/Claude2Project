@@ -60,11 +60,42 @@ check_working_tree_clean() {
   return 0
 }
 
+# Get latest unreolved review branch version
+get_latest_review_branch_no() {
+  local current_review_number
+  current_review_number=$(git_in_project git branch | grep -i "^[[:space:]]*review-patch/[0-9]\+$" -c) # Branches don't reqire sorting
+  echo "$current_review_number"
+}
+
+# Get latest review branch version from logs
+get_lastest_review_log_no() {
+  local current_review_number
+  current_review_number=$(git_in_project git log --all --grep="review-patch/" --pretty=format:"%s" -i | \
+    grep -i "review-patch/[0-9]\+" | \
+    sed -E 's/.*review-patch\/([0-9]+).*/\1/i' | \
+    sort -n | \
+    tail -n 1) # Log doesn't gurrenty sequeence 
+  
+  # If no previous reviews found or invalid output, start from 0
+  if ! [[ "$current_review_number" =~ ^[0-9]+$ ]]; then
+    current_review_number=0
+  fi
+  echo "$current_review_number"
+}
+
 # Create a new review branch
 create_review_branch() {
-  local current_review new_review origin_branch review_branch
-  current_review=$(git_in_project git branch | grep -c "review-patch/")
-  new_review=$((current_review + 1))
+  local new_review origin_branch review_branch
+  local review_from_branch review_from_log
+
+  review_from_branch=$(get_latest_review_branch_no) 
+  review_from_log=$(get_lastest_review_log_no)
+  #To avoid generating any conficting branch name
+  if [ "$review_from_branch" -gt "$review_from_log" ]; then
+    new_review=$((review_from_branch + 1))
+  else
+    new_review=$((review_from_log + 1))
+  fi
   review_branch="review-patch/$new_review"
 
   # Store the current branch name
@@ -407,6 +438,18 @@ perform_merge() {
   fi
 }
 
+# Delete review branch
+delete_review_branch() {
+  local review_branch="$1"
+  if [ -n "$review_branch" ] && git rev-parse --verify "$review_branch" &>/dev/null; then
+    git_in_project git branch -D "$review_branch"  &>/dev/null || {
+      print_fn_log "Warning" "Review branch $review_branch, could not be deleted"
+      return 1
+    }
+  fi
+  return 0
+}
+
 # Cleanup function to restore git state
 cleanup_git_state() {
   local review_branch="$1"
@@ -415,7 +458,7 @@ cleanup_git_state() {
   print_fn_log "Info" "Performing git state cleanup..."
   
   # Check if we're in a git repository
-  if ! git_in_project git rev-parse --git-dir > /dev/null 2>&1; then
+  if ! git_in_project git rev-parse --git-dir &>/dev/null; then
     print_fn_log "Warning" "Not in a git repository, skipping cleanup"
     print_fn_heading "Alert" "Cleanup aborted"
     return 1
@@ -457,18 +500,23 @@ cleanup_git_state() {
     if git_in_project git checkout "$origin_branch" 2>/dev/null; then
       print_fn_heading "Switched to: $origin_branch"
       # Delete review branch if it exists
-      if [ -n "$review_branch" ] && git_in_project git branch --list "$review_branch" | grep -q "$review_branch"; then
-        print_fn_log "Info" "Removing review branch: $review_branch"
-      
-        git_in_project git branch -D "$review_branch"  2>/dev/null || {
-          print_fn_log "Warning" "Review branch $review_branch, could not be deleted"
-        }
+      if ! delete_review_branch "$review_branch"; then
+        print_fn_heading "Alert" "Project cleaned, but review branch retained"
+      else
+        print_fn_heading  "Notify" "Project cleaned and review branch deleted successfully"
       fi
-      print_fn_heading "Project updated and review branch cleaned up successfully"
+      
     else
       print_fn_log "Warning"  "Failed to restore original branch"
       print_fn_heading "Alert" "Cleanup completed. The review branch is retained, need to delet manually"
       return 0
+    fi
+  elif [ "$current_branch" == "$origin_branch" ]; then # After a successful merge 
+    # Delete review branch if it exists
+    if ! delete_review_branch "$review_branch"; then
+      print_fn_heading "Alert" "Project updated and cleaned, review branch retained.d"
+    else
+      print_fn_heading "Notify" "Project updated, cleaned, and review branch deleted"
     fi
   fi
   print_fn_heading "Notify" "Cleanup completed"
