@@ -84,7 +84,7 @@ get_lastest_review_log_no() {
     grep -i "review-patch/[0-9]\+" | \
     sed -E 's/.*review-patch\/([0-9]+).*/\1/i' | \
     sort -n | \
-    tail -n 1) # Log doesn't gurrenty sequeence 
+    tail -n 1) # Log does not guarantee sequence
   
   # If no previous reviews found or invalid output, start from 0
   if ! [[ "$current_review_number" =~ ^[0-9]+$ ]]; then
@@ -181,12 +181,12 @@ _get_available_tools() {
   # Print menu and get choice
   {
     clear
-    print_fn_heading "Notify" "Available merge options:"
+    print_fn_heading "Notify" "Available review tools options:"
     for i in "${!available_tools[@]}"; do
       echo "$((i+1)). ${available_tools[i]}"
     done
-    echo "$((${#available_tools[@]}+1)). Use git add -p (default)"
-    echo -n "Choose a merge option (1-$((${#available_tools[@]}+1))): "
+    echo "$((${#available_tools[@]}+1)). Standard git diff (default)"
+    echo -n "Choose a review tools option (1-$((${#available_tools[@]}+1))): "
   } > /dev/tty
 
   # Read from /dev/tty explicitly
@@ -224,7 +224,6 @@ _stage_file_with_mergetool() {
   local relative_file_path repo_toplevel status
   
   relative_file_path="$(_get_relative_path "$file")"
-  # print_fn_heading "Reviewing diff: $relative_file_path"
   if [ ! -f "$relative_file_path" ]; then
     print_fn_log "Warning" "File not found: $relative_file_path"
     return 0
@@ -239,7 +238,7 @@ _stage_file_with_mergetool() {
     local backup_file="$relative_file_path.working_tree"
     
     # Get the version from index
-    git_in_project show :"$relative_file_path" > "$index_file"
+    git_in_project --stdout show :"$relative_file_path" > "$index_file"
 
     # Set up merge tool command based on tool
     local merge_cmd 
@@ -291,7 +290,7 @@ _stage_file() {
   local relative_path
   
   relative_path="$(_get_relative_path "$file")"
-  print_fn_heading "Processing file: $relative_path"
+  print_fn_log "info file: $relative_path"
   
   if [ ! -f "$relative_path" ]; then
     print_fn_log "Warning" "File not found: $relative_path"
@@ -336,6 +335,46 @@ _commit_changes() {
   return 0
 }
 
+_get_files_to_stage() {
+  local IFS=$'\n'
+  local files=("$@")
+  local modified_files temp_untracked_files untracked_files all_files
+
+  # Get tracked files that are modified but not staged
+  # shellcheck disable=SC2207
+  modified_files=($(git_in_project --stdout diff --name-only))
+
+  # Get all untracked files temporarily
+  # shellcheck disable=SC2207
+  temp_untracked_files=($(git_in_project --stdout ls-files --others --exclude-standard))
+
+  # Filter untracked files based on updated files list
+  untracked_files=()
+  for file in "${temp_untracked_files[@]}"; do
+    local abs_file
+    if [[ "$file" = /* ]]; then
+      # If absolute path
+      abs_file="$file"
+    else
+      # If already relative
+      abs_file="$PROJECT_DIR/$file"
+    fi
+    #If file is in the updated files list
+    for tracked_file in "${files[@]}"; do
+      if [[ "$tracked_file" == "$abs_file" ]]; then
+        untracked_files+=("$file")
+        break
+      fi
+    done
+  done
+
+  # Combine into all_files array
+  all_files=("${modified_files[@]}" "${untracked_files[@]}")
+
+  # Return the total count of files
+  echo "${all_files[@]}"
+}
+
 # Function to stage and commit files with options
 stage_and_commit_files() {
   local message="$1"
@@ -344,18 +383,21 @@ stage_and_commit_files() {
   local files=("$@")
   local merge_tool
   
-  print_fn_log "Info" "Staging files in: $PROJECT_DIR"
+  print_fn_heading "Staging files in: $PROJECT_DIR"
   
   if [ "$review" = true ]; then
     # Get user's preferred merge tool
     merge_tool=$(_get_available_tools)
     merge_tool="$(echo "$merge_tool" | sed 's/\x1B\[[0-9;]*[JKmsu]//g' | tr -d '[:space:]')"
   fi
-    
+
+  # shellcheck disable=SC2207
+  local staging_candidates=($(_get_files_to_stage "${files[@]}"))
+
   # Change to project directory
   (cd "$PROJECT_DIR" && {
     # Stage each file
-    for file in "${files[@]}"; do
+    for file in "${staging_candidates[@]}"; do
       case "${merge_tool}" in
       ""|" ")
           _stage_file "$file" "$review" || return 1
@@ -376,7 +418,6 @@ stage_and_commit_files() {
     
     # Commit changes with appropriate cleanup
     _commit_changes "$message" "$review" || return 1
-
   }) || return 1
 
   return 0
@@ -410,7 +451,7 @@ perform_merge() {
   git_in_project merge --no-commit --no-ff "$review_branch" 
 
   # Review merge conflicts
-  if ! git_in_project diff --cached; then
+  if ! git_in_project --stdout diff --cached; then
     configure_merge_tool
     if ! git_in_project mergetool; then
       print_fn_log "Error" "Git mergetool --no-commit failed. Check for conflicts or tool configuration"
@@ -418,7 +459,7 @@ perform_merge() {
     fi
 
     # Review merged changes
-    git_in_project diff --cached
+    git_in_project --stdout diff --cached
 
     read -rp "Proceed with merge commit? (y/n): " proceed
     if [[ $proceed == "y" ]]; then
