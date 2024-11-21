@@ -310,7 +310,7 @@ action_router() {
 
 # Main script entry point
 main() {
-  if [ -z "$1" ]; then
+  if [ -z "$1" ] || [ "$1" == "--help" ]; then
     echo "Usage: $0 <input_file> [destination_directory]"
     exit 1
   fi
