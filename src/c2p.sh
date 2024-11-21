@@ -15,8 +15,14 @@
 # in Claude.ai output or the compatibility of this program with future format.
 #
 
-# Source the git functions
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the actual path of the script, even if it's a symlink
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do # Resolve symbolic links
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE" # If the link is relative, resolve it
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/git-functions.sh" || {
