@@ -9,6 +9,9 @@
 # Store the project directory for Git operations
 PROJECT_DIR=""
 
+# Review branch prfix
+REVIEW_PREFIX="review-branch"
+
 # Source the logging functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -73,16 +76,20 @@ check_working_tree_clean() {
 # Get latest unreolved review branch version
 get_latest_review_branch_no() {
   local current_review_number
-  current_review_number=$(git_in_project --stdout branch | grep -i "^[[:space:]]*review-patch/[0-9]\+$" -c) # Branches don't reqire sorting
+  current_review_number=$(git_in_project --stdout branch | \
+    grep -i "^[[:space:]]*$REVIEW_PREFIX/[0-9]\+$" | \
+    sed -E "s/.*$REVIEW_PREFIX\/([0-9]+).*/\1/i" | \
+    head -n 1 ) # Branches don't reqire sorting
+  print_fn_log "Warning" "$current_review_number"
   echo "$current_review_number"
 }
 
 # Get latest review branch version from logs
 get_lastest_review_log_no() {
   local current_review_number
-  current_review_number=$(git_in_project --stdout log --all --grep="review-patch/" --pretty=format:"%s" -i | \
-    grep -i "review-patch/[0-9]\+" | \
-    sed -E 's/.*review-patch\/([0-9]+).*/\1/i' | \
+  current_review_number=$(git_in_project --stdout log --all --grep="$REVIEW_PREFIX/" --pretty=format:"%s" -i | \
+    grep -i "$REVIEW_PREFIX/[0-9]\+" | \
+    sed -E "s/.*$REVIEW_PREFIX\/([0-9]+).*/\1/i" | \
     sort -n | \
     tail -n 1) # Log does not guarantee sequence
   
@@ -90,6 +97,8 @@ get_lastest_review_log_no() {
   if ! [[ "$current_review_number" =~ ^[0-9]+$ ]]; then
     current_review_number=0
   fi
+
+  print_fn_log "Warning" "$current_review_number"
   echo "$current_review_number"
 }
 
@@ -106,7 +115,7 @@ create_review_branch() {
   else
     new_review=$((review_from_log + 1))
   fi
-  review_branch="review-patch/$new_review"
+  review_branch="$REVIEW_PREFIX/$new_review"
 
   # Store the current branch name
   origin_branch=$(git_in_project --stdout rev-parse --abbrev-ref HEAD)
