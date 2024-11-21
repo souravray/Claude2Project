@@ -43,7 +43,6 @@ git_in_project() {
     (cd "$PROJECT_DIR" && git "$@") &>/dev/null
   ;;
   esac
-  
 }
 
 # Initialize a new Git repository
@@ -80,7 +79,7 @@ get_latest_review_branch_no() {
     grep -i "^[[:space:]]*$REVIEW_PREFIX/[0-9]\+$" | \
     sed -E "s/.*$REVIEW_PREFIX\/([0-9]+).*/\1/i" | \
     head -n 1 ) # Branches don't reqire sorting
-  print_fn_log "Warning" "$current_review_number"
+    
   echo "$current_review_number"
 }
 
@@ -98,7 +97,6 @@ get_lastest_review_log_no() {
     current_review_number=0
   fi
 
-  print_fn_log "Warning" "$current_review_number"
   echo "$current_review_number"
 }
 
@@ -344,6 +342,7 @@ _commit_changes() {
   return 0
 }
 
+ # Helper function to get the list of files to be stagged
 _get_files_to_stage() {
   local IFS=$'\n'
   local files=("$@")
