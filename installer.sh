@@ -9,7 +9,7 @@ readonly COLOR_GREEN='\033[0;32m'
 
 # Globar variables
 DEV_MODE=false
-SOURCE_DIR=""
+SRC_DIR=""
 INSTALL_DIR=""
 INSTALL_LIB_DIR=""
 VERSION=""
@@ -37,23 +37,30 @@ esac
 # Check for required dependencies
 check_dependencies() {
   # Core dependencies required by the scripts
-  local deps=("sed" "git" "grep")
-  local min_bash_vers="3.2"
+  local deps=("sed" "readlink" "git" "grep")
+  local min_bash_mjor="3"
+  local min_bash_minor="2"
   local missing_deps=()
 
   # Check bash version first
   if command -v bash &>/dev/null; then
-    local bash_vers
-    bash_vers=$(bash --version | head -n1 | sed 's/.*version \([0-9]*\)\.\([0-9]*\).*/\1.\2/g')
-    if ! (($(echo "$bash_vers >= $min_bash_vers" | bc -l))); then
-      echo -e "${COLOR_RED}${BOLD}bash version should be $min_bash_vers or newer (found: $bash_vers) ${RESET}"
+  local bash_vers bash_major bash_minor
+    bash_vers=$(bash --version | head -n1)
+    bash_vers=${bash_vers#*version}  # Remove everything up to "version"
+    bash_major=${bash_vers%%.*}      # everything before the first dot (like 3 from 3.3.57)
+    bash_minor=${bash_vers#*.}       # Remove major version and the dot (2.57)
+    bash_minor=${bash_minor%%.*}     # everything before the next dot (2 from 2.57)
+    
+    # Compare versions using POSIX-compliant logic
+    if [ "$bash_major" -lt "$min_bash_mjor" ] || { [ "$bash_major" -eq "$min_bash_mjor" ] && [ "$bash_minor" -lt "$min_bash_minor" ]; }; then
+      echo -e "${COLOR_RED}${BOLD}bash version should be $min_bash_mjor.$min_bash_minor or newer (found:$bash_major.$bash_minor) ${RESET}"
       exit 1
     fi
   else
     echo -e "${COLOR_RED}${BOLD}bash not found!${RESET}"
     exit 1
   fi
-
+  
   # Check other dependencies
   for dep in "${deps[@]}"; do
     if ! command -v "$dep" &> /dev/null; then
@@ -106,10 +113,11 @@ done
 
 # Run the build script in dev mode
 if [ "$DEV_MODE" = true ]; then
-  echo "Running build script in dev mode..."
-  SOURCE_DIR="src"
+  echo "Running installer script in dev mode..."
+  SRC_DIR="src"
 else
-  echo -e "${BOLD}Released build is yet not available${RESET}"
+  echo -e "${BOLD}Released build not available yet. Try installing the dev version:\n${RESET}  $0 --dev"
+  exit 0
 fi
 
 echo "Installing c2p version $VERSION..."
@@ -122,10 +130,10 @@ rm -f "$INSTALL_DIR/c2p"
 mkdir -p "$INSTALL_LIB_DIR"
 
 # First set executable permissions on source files before copying
-chmod +x "$SOURCE_DIR/c2p.sh"
+chmod +x "$SRC_DIR/c2p.sh"
 
 # Copy files and preserve permissions (-p flag)
-cp -p "$SOURCE_DIR"/*.sh "$INSTALL_LIB_DIR/"
+cp -p "$SRC_DIR"/*.sh "$INSTALL_LIB_DIR/"
 
 # Ensure correct permissions on all files
 chmod 644 "$INSTALL_LIB_DIR"/*.sh
