@@ -42,6 +42,10 @@ set_project_dir() {
 git_in_project() {
   local check_flag=$1
   case "$check_flag" in
+  --stdall)
+    shift
+    (cd "$PROJECT_DIR" && git "$@")   # This is intended to be used for debugging purpose 
+  ;;
   --stdout)
     shift
     (cd "$PROJECT_DIR" && git "$@") 2>/dev/null
@@ -302,32 +306,52 @@ _stage_file() {
   local file="$1"
   local review="$2"
   local relative_path
+  local add_new=true
   
   relative_path="$(_get_relative_path "$file")"
-  print_fn_log "info file: $relative_path"
-  
   if [ ! -f "$relative_path" ]; then
     print_fn_log "Warning" "File not found: $relative_path"
     # Ignoring bad file reference
     return 0
   fi
+
+  print_fn_heading "Review and staging changes in: $relative_path"
+
+  repo_toplevel=$(git_in_project --stdout rev-parse --show-toplevel)
   
+  (cd "$repo_toplevel" && {
+  # Check if the file is untracked
+  git_in_project ls-files --error-unmatch "$relative_path" || {
+    review=false
+    read -rp "Do you want to add new file - $relative_path? (y/n): " proceed
+    if [[ $proceed != "y" ]]; then
+      print_fn_log "Warning" "Skipping $relative_path!"
+      add_new=false
+    fi
+  }
+
   if [ "$review" = true ]; then
-    clear
-    print_fn_heading "Review and staging changes in: $relative_path"
-    sleep 1
-    clear
     git_in_project --stdout add -p "$relative_path" || {
       print_fn_log "Error" "Failed to stage $relative_path"
+      sleep 1
+      clear
       return 1
     }
-  else
+    print_fn_log "Info" "Changes in $relative_path are staged"
+  elif [ "$add_new" = true ]; then
     git_in_project add "$relative_path" || {
       print_fn_log "Error" "Failed to stage $relative_path"
+      sleep 1
+      clear
       return 1
     }
+    print_fn_log "Info" "$relative_path is added to staging"
   fi
+
+  sleep 1
+  clear
   return 0
+  })
 }
 
 # Helper function to handle commit
