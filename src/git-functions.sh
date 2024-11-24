@@ -9,6 +9,9 @@
 # Store the project directory for Git operations
 PROJECT_DIR=""
 
+# Declare review options
+ADD_NEW="auto-add-new"
+SKIP_NEW="auto-skip-new"
 # Review branch prfix
 REVIEW_PREFIX="review-branch"
 
@@ -90,6 +93,11 @@ get_latest_review_branch_no() {
     grep -i "^[[:space:]]*$REVIEW_PREFIX/[0-9]\+$" | \
     sed -E "s/.*$REVIEW_PREFIX\/([0-9]+).*/\1/i" | \
     head -n 1 ) # Branches don't reqire sorting
+
+  # If no previous reviews found or invalid output, start from 0
+  if ! [[ "$current_review_number" =~ ^[0-9]+$ ]]; then
+    current_review_number=0
+  fi
     
   echo "$current_review_number"
 }
@@ -237,74 +245,114 @@ _get_relative_path() {
 # a better version of `git add -p <file>`, 
 # inspired by Stuart Berg's https://github.com/stuarteberg/stuart-scripts/blob/master/add-with-mergetool
 _stage_file_with_mergetool() {
-  local file="$1"
-  local tool="$2"
+  local option="$1"
+  local file="$2"
+  local tool="$3"
+  local add_new=false skip_new=false
   local relative_file_path repo_toplevel status
-  
   relative_file_path="$(_get_relative_path "$file")"
   if [ ! -f "$relative_file_path" ]; then
     print_fn_log "Warning" "File not found: $relative_file_path"
     return 0
   fi
   
+  print_fn_heading "Review and staging changes in: $relative_file_path"
+
   repo_toplevel=$(git_in_project --stdout rev-parse --show-toplevel)
-  
   (cd "$repo_toplevel" && {
-    # Create temporary files with meaningful names
-    local index_file="$relative_file_path.from_index"
-    # local merged_file="$relative_file_path.to_add" # If support kdiff3 or similar tools in future
-    local backup_file="$relative_file_path.working_tree"
+    git_in_project ls-files --error-unmatch "$relative_file_path" || {
+      if [ "$option" == "$ADD_NEW" ]; then
+        add_new=true
+      elif [ "$option" == "$SKIP_NEW" ]; then
+        skip_new=true
+      else 
+        review=false
+        read -rp "Do you want to add new file - $relative_file_path? (y/n): " proceed
+        if [[ $proceed = "y" ]]; then
+          add_new=true
+        else
+          skip_new=true
+        fi
+      fi
+    }
     
-    # Get the version from index
-    git_in_project --stdout show :"$relative_file_path" > "$index_file"
-
-    # Set up merge tool command based on tool
-    local merge_cmd 
-    case "$tool" in
-      "code")
-        merge_cmd="code --wait --diff \"$index_file\" \"$relative_file_path\""
-        ;;
-      "vimdiff"|"nvimdiff")
-        # Using -d for side-by-side diff mode
-        merge_cmd="$tool -d \"$index_file\" \"$relative_file_path\""
-        ;;
-      *)
-        print_fn_log "Error" "Unsupported merge tool '$tool'"
-        rm -f "$index_file"
-        return 1
-        ;;
-    esac
-    
-    # Execute merge
-    print_fn_log "Info" "Launching $tool for '$relative_file_path'. \n Save and close the file to stage!"
-
-    # For tools that handle waiting themselves
-    eval "$merge_cmd"
-    status=$?
-    
-    if [ $status -eq 0 ]; then
-      # Backup working tree version
-      cp "$relative_file_path" "$backup_file"
+    if [ "$add_new" = true ]; then
+        git_in_project add "$relative_file_path" || {
+          print_fn_log "Error" "Failed to stage $relative_file_path"
+          sleep 0.5
+          clear
+          return 1
+        }
+        
+        print_fn_log "Info" "$relative_file_path is added to staging"
+    elif [ "$skip_new" = true ]; then
+        print_fn_log "Warning" "Skipping $relative_file_path!"
+    else 
+      # Create temporary files with meaningful names
+      local index_file="$relative_file_path.from_index"
+      # local merged_file="$relative_file_path.to_add" # If support kdiff3 or similar tools in future
+      local backup_file="$relative_file_path.working_tree"
       
-      # Stage the changes
-      git_in_project add "$relative_file_path"
+      # Get the version from index
+      git_in_project --stdout show :"$relative_file_path" > "$index_file"
+
+      # Set up merge tool command based on tool
+      local merge_cmd 
+      case "$tool" in
+        "code")
+          merge_cmd="code --wait --diff \"$index_file\" \"$relative_file_path\""
+          ;;
+        "vimdiff"|"nvimdiff")
+          # Using -d for side-by-side diff mode
+          merge_cmd="$tool -d \"$index_file\" \"$relative_file_path\""
+          ;;
+        *)
+          print_fn_log "Error" "Unsupported merge tool '$tool'"
+          rm -f "$index_file"
+          return 1
+          ;;
+      esac
       
-      # Restore working tree version
-      mv "$backup_file" "$relative_file_path"
-    fi
-    
-    # Cleanup
+      # Execute merge
+      print_fn_log "Info" "Launching $tool for '$relative_file_path'. \n Save and close the file to stage!"
+
+      # For tools that handle waiting themselves
+      eval "$merge_cmd"
+      status=$?
+      
+      if [ $status -eq 0 ]; then
+        # Backup working tree version
+        cp "$relative_file_path" "$backup_file"
+        
+        # Stage the changes
+        git_in_project add "$relative_file_path" || {
+          print_fn_log "Error" "Failed to stage $relative_file_path"
+          sleep 0.5
+          clear
+          return 1
+        }
+        print_fn_log "Info" "$relative_file_path is added to staging"
+        # Restore working tree version
+        mv "$backup_file" "$relative_file_path"
+      else
+        return $status
+      fi
+      
+      # Cleanup
       rm -f "$index_file"
       rm -f "$backup_file"
-    
-    return $status
+    fi
+    sleep 0.5
+    clear
+    return 0
   })
 }
 
 # Helper function to stage a single file
 _stage_file() {
-  local file="$1"
-  local review="$2"
+  local option="$1"
+  local file="$2"
+  local review="$3"
   local relative_path
   local add_new=true
   
@@ -323,11 +371,22 @@ _stage_file() {
     if [ "$review" = true ]; then 
       # Check if the file is untracked
       git_in_project ls-files --error-unmatch "$relative_path" || {
-        review=false
-        read -rp "Do you want to add new file - $relative_path? (y/n): " proceed
-        if [[ $proceed != "y" ]]; then
-          print_fn_log "Warning" "Skipping $relative_path!"
+        if [ "$option" == "$ADD_NEW" ]; then
+          review=false
+          add_new=true
+        elif [ "$option" == "$SKIP_NEW" ]; then
+          review=false
           add_new=false
+          print_fn_log "Warning" "Skipping $relative_path!"
+        else 
+          review=false
+          read -rp "Do you want to add new file - $relative_path? (y/n): " proceed
+          if [[ $proceed = "y" ]]; then
+            add_new=true
+          else
+            add_new=false
+            print_fn_log "Warning" "Skipping $relative_path!"
+          fi
         fi
       }
     fi
@@ -335,7 +394,7 @@ _stage_file() {
     if [ "$review" = true ]; then
       git_in_project --stdout add -p "$relative_path" || {
         print_fn_log "Error" "Failed to stage $relative_path"
-        sleep 1
+        sleep 0.5
         clear
         return 1
       }
@@ -343,14 +402,14 @@ _stage_file() {
     elif [ "$add_new" = true ]; then
       git_in_project add "$relative_path" || {
         print_fn_log "Error" "Failed to stage $relative_path"
-        sleep 1
+        sleep 0.5
         clear
         return 1
       }
       print_fn_log "Info" "$relative_path is added to staging"
     fi
   
-    sleep 1
+    sleep 0.5
     clear
     return 0
   })
@@ -360,18 +419,26 @@ _stage_file() {
 _commit_changes() {
   local message="$1"
   local discard_unstaged="$2"
+
+  local taged_file_count
+  taged_file_count=$(git_in_project --stdout diff --name-only --cached  | wc -l)
   
-  print_fn_heading "Committing changes with message: $message"
-  git_in_project commit -m "$message" || {
-    print_fn_log "Error" "Failed to commit changes"
-    return 1
-  }
-  
+  if [ "$taged_file_count" -gt 0 ]; then
+    print_fn_heading "Committing changes with message: $message"
+    git_in_project commit -m "$message" || {
+      print_fn_log "Error" "Failed to commit changes"
+      return 1
+    }
+  else
+    print_fn_heading "Notify" "There is nothing to commit"
+  fi
+
   if [ "$discard_unstaged" = true ]; then
     git_in_project restore . || {
       print_fn_log "Warning" "Failed to clean unstaged changes"
     }
   fi
+
   return 0
 }
 
@@ -419,11 +486,12 @@ _get_files_to_stage() {
 # Function to stage and commit files with options
 stage_and_commit_files() {
   local message="$1"
-  local review=${2:-false}  # Optional parameter for review mode
+  local option="$2"
+  local review=${3:-false}  # Optional parameter for review mode
   shift
   local files=("$@")
   local merge_tool
-  
+  print_fn_heading "Notify" "Option is : $option"
   print_fn_heading "Staging files in: $PROJECT_DIR"
   
   if [ "$review" = true ]; then
@@ -441,10 +509,10 @@ stage_and_commit_files() {
     for file in "${staging_candidates[@]}"; do
       case "${merge_tool}" in
       ""|" ")
-          _stage_file "$file" "$review" || return 1
+          _stage_file "$option" "$file" "$review" || return 1
         ;;
       *)
-        _stage_file_with_mergetool "$file" "$merge_tool" || {
+        _stage_file_with_mergetool "$option" "$file" "$merge_tool" || {
           print_fn_log "Error" "Failed to stage $file"
           return 1
         }
@@ -464,9 +532,9 @@ stage_and_commit_files() {
   return 0
 }
 
-# Function for interactive review and commit (wrapper for backward compatibility)
+# Function for interactive review and commit
 review_stage_and_commit_files() {
-  stage_and_commit_files "$1" true "${@:2}" || return 1
+  stage_and_commit_files "$1" "$2" true "${@:3}"  || return 1
   return 0
 }
 
