@@ -190,7 +190,13 @@ clear_directory() {
 
 # Initialize new project with a Git workflow
 init_project_action() {
-  local input_file="$1" dir="$2"
+  local input_file="$1" dir="$2" option="$3"
+  print_fn_heading "Initalizing a new project"
+
+  if [ "$option" == "$SKIP_NEW" ]; then
+      print_fn_log "Warning" "Poject cannot be initiated with --$SKIP_NEW, switching to --$ADD_NEW"
+      option="$ADD_NEW"
+  fi
 
   # Get absolute path of destination directory
   local abs_dir
@@ -218,7 +224,7 @@ init_project_action() {
   }
   
   # Stage and commit all files
-  stage_and_commit_files "Initial project setup" "${file_paths[@]}" || {
+  stage_and_commit_files "Initial project setup" "$option" "${file_paths[@]}" || {
     clear_directory "$abs_dir"
     return 1
   }
@@ -229,7 +235,7 @@ init_project_action() {
 
 # Update existing project with Git workflow
 update_project_action() {
-  local input_file="$1" dir="$2"
+  local input_file="$1" dir="$2" option="$3"
   local abs_dir review_branch
 
   # Get absolute path of destination directory
@@ -261,8 +267,8 @@ update_project_action() {
   }
 
   # Stage and commit changes in review branch
-  review_stage_and_commit_files "Update from Claude output" "${file_paths[@]}" || {
-    cleanup_git_state "$review_branch" "$origin_branch"
+  review_stage_and_commit_files "Update from Claude output" "$option" "${file_paths[@]}" || {
+    cleanup_git_state "$review_branch" "$origin_branch" 
     return 1 
   }
   
@@ -284,12 +290,12 @@ update_project_action() {
 
 # Route to init_project_action or update_project_action based on directory status
 action_router() {
-  local input_file="$1" dir="$2"
+  local input_file="$1" dir="$2" option="$3"
 
   # Check if the directory has a .git folder
   if [ -d "$dir/.git" ]; then
       print_fn_heading "Notify" "$dir has an Existing Git repository. Updating the project..."
-      update_project_action "$input_file" "$dest_dir" || {
+      update_project_action "$input_file" "$dest_dir" "$option" || {
           print_fn_heading "Failure" "Failurer" "Update failed: Unable to complete the project update"
           return 1
       }
@@ -297,7 +303,7 @@ action_router() {
     # Check if the directory is empty (excluding hidden files)
     if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
       print_fn_heading "Notify" "$dir is empty. Initiating new project..."
-      init_project_action "$input_file" "$dest_dir" || {
+      init_project_action "$input_file" "$dest_dir" "$option" || {
         print_fn_heading "Failure" "Initialization failed: Unable to start the project"
         return 1
       }
@@ -310,19 +316,38 @@ action_router() {
 
 # Main script entry point
 main() {
+  local option=""
   if [ -z "$1" ] || [ "$1" == "--help" ]; then
-    echo "Usage: $0 <input_file> [destination_directory]"
+    echo "Usage: c2p [--option] <input_file> [destination_directory]"
+    echo -e "  --auto-add-new \t Will stage a new file during a review without giving any prompt"
+    echo -e "  --auto-skip-new \t Will skip a new file during a review without giving amy prompt"
     exit 1
+  elif [ "$1" == "--auto-add-new" ]; then
+    option="$ADD_NEW"
+    shift
+  elif [ "$1" == "--auto-skip-new" ]; then
+    option="$SKIP_NEW"
+    shift
+  elif [[ "$1" =~ ^--* ]]; then
+    print_fn_log "Warning" "Unknow option $1, is ignored!"
+    print_fn_heading "Notify" "Run c2p --help to learn more about options"
+    shift 
   fi
 
   local input_file="$1"
   local dest_dir="${2:-.}"
 
+  # Check if input file exists
+  if ! [ -f "$input_file" ]; then
+    print_fn_heading "Failure" "Cannot find the source file"
+    exit 1
+  fi
+
 # Only create the directory if it's not the current directory
   if [[ "$dest_dir" != "." ]]; then
     directory_create "$dest_dir"
   fi
-  if action_router "$input_file" "$dest_dir"; then
+  if action_router "$input_file" "$dest_dir" "$option"; then
     print_fn_heading "Success" "Directory structure and files created successfully in $dest_dir"
   fi
 }
