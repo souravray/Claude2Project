@@ -249,6 +249,9 @@ update_project_action() {
 
   # Check if HEAD is detached
   check_detached_head ||  return 1
+
+  #check if branch is a working branch
+  check_if_on_a_workibg_branch || return 1
   
   # Check for unsaved changes
   check_working_tree_clean || return 1
