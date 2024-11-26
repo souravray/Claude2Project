@@ -77,6 +77,16 @@ check_detached_head() {
   return 0
 }
 
+# Check if cureent branch isa review branch
+check_if_on_a_workibg_branch() {
+  # shellcheck disable=SC2046
+  if [ "$(git_in_project --stdout rev-parse --abbrev-ref HEAD | grep -c "$REVIEW_PREFIX/[0-9]\+$")" -gt 0 ] ; then
+    print_fn_log "Error" "You are currently on a review branch. Please move to a clean working branch and try again"
+    return 1
+  fi
+  return 0
+}
+
 # Check if working tree is clean
 check_working_tree_clean() {
   if ! git_in_project diff-index --quiet HEAD --; then
