@@ -553,6 +553,12 @@ perform_merge() {
   local review_branch="$1"
   local origin_branch="$2"
   local merge_successful=false
+
+  read -rp "Do you want to proceed with merging changes to $origin_branch? (y/n): " proceed
+  if [[ $proceed != "y" ]]; then
+    print_fn_log "Info" "Discarting all changes"
+    return 1
+  fi
   
   print_fn_heading "Notify" "Merging \"$review_branch\" changes to \"$origin_branch\"..."
 
