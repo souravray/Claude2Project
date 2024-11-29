@@ -548,18 +548,49 @@ review_stage_and_commit_files() {
   return 0
 }
 
+# Take user's confermation to proceed with merging
+confirm_merge() {
+  local review_branch="$1"
+  local origin_branch="$2"
+  local is_inspected=false
+
+  while true; do
+    # Construct the prompt dynamically based on the inspected state
+    local prompt
+    if [ "$is_inspected" == false ]; then
+      prompt="Do you want to merge changes to $origin_branch? [i]nspect / [a]ccept / Any other key to [d]iscard:"
+    else
+      prompt="Do you want to merge changes to $origin_branch? [a]ccept / Any other key to [d]iscard: "
+    fi
+  
+    read -rp "$(echo -e "$prompt")" proceed
+  
+    if [ "$proceed" == "i" ] && [ "$is_inspected" == false ]; then
+      # Check the diference between origin branch and review branch
+      git_in_project --stdout diff "$origin_branch...$review_branch" || return 1
+      is_inspected=true
+    elif [ "$proceed" == "a" ]; then
+      print_fn_log "Info" "Proceeding for merege"
+      return 0
+    else
+      print_fn_log "Info" "Discarding changes"
+      return 1
+    fi
+  done
+}
+
 # Perform merge operation
 perform_merge() {
   local review_branch="$1"
   local origin_branch="$2"
   local merge_successful=false
 
-  read -rp "Do you want to proceed with merging changes to $origin_branch? (y/n): " proceed
-  if [[ $proceed != "y" ]]; then
-    print_fn_log "Info" "Discarting all changes"
+  # Take users confirmation to prceed further
+  confirm_merge "$review_branch" "$origin_branch" || {
+    print_fn_heading "Alert" "Changes discarded. Proceeding with cleanup!"
     return 1
-  fi
-  
+  }
+
   print_fn_heading "Notify" "Merging \"$review_branch\" changes to \"$origin_branch\"..."
 
   if [ -z "$origin_branch" ]; then
@@ -576,7 +607,7 @@ perform_merge() {
   git_in_project merge --no-commit --no-ff "$review_branch" 
 
   # Review merge conflicts
-  if ! git_in_project --stdout diff --cached; then
+  if ! git_in_project diff --cached; then
     configure_merge_tool
     if ! git_in_project mergetool; then
       print_fn_log "Error" "Git mergetool --no-commit failed. Check for conflicts or tool configuration"
@@ -693,7 +724,7 @@ cleanup_git_state() {
   elif [ "$current_branch" == "$origin_branch" ]; then # After a successful merge 
     # Delete review branch if it exists
     if ! delete_review_branch "$review_branch"; then
-      print_fn_log "Warning" "Project updated and cleaned, review branch retained.d"
+      print_fn_log "Warning" "Project updated and cleaned, review branch retained."
     else
       print_fn_log "Info" "Project updated, cleaned, and review branch deleted"
     fi
