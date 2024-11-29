@@ -38,7 +38,7 @@ The script will copy the `/src` files to `/usr/local/lib/c2p` (or the equivalent
 > If the **user** doesn't have permission to write to the `bin` folder, the script will prompt you to run it with `sudo`.
 
 ### Build Dependencies  
-C2P has minimal external dependencies, most of which come pre-installed on *nix systems. It supports bash version 3.2 and onward. You'll need `git`, `grep`, and `sed`. If any one is missing, the installer will prompt you to install them.
+C2P has minimal external dependencies, most of which come pre-installed on *nix systems. It supports $${\color{green}Bash \space version \space 3.2 \space \color{lightgreen}and \space onward}$$. You'll need `git`, `grep`, and `sed`. If any one is missing, the installer will prompt you to install them.
 
 ### System Requirements
 The code is currently tested on macOS (Darwin) with an Intel processor but should work on most Linux and BSD distributions. It can also run on **Cygwin** on **Windows**.
